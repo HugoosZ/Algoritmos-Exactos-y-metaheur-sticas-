@@ -1,5 +1,10 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
+#include <algorithm>
+#include <chrono>
+#include <string>
+#include <cmath>
 
 using namespace std;
 
@@ -12,46 +17,131 @@ struct Avion {
     int C_i, C_k;        // Costos. C_i bajo el tiempo preferente. C_k Sobre el tiempo preferente.
 };
 
-vector<Avion> aviones;   // Vector de aviones. Cada avion tiene su tiempo preferente, tardio, preferente y sus costos.
-vector<int> T_aviones;   // Vector de tiempos asignados a cada avion. T_aviones[i] = T_i; i = 1 ... D;
-vector<vector<int>> tau; // Matriz de tiempos mínimos entre aviones. tau[i][j] = t_ij; i, j = 1 ... D; i != j; tau[i][i] = 0;
+int D = 0;                        // Cantidad de aviones
+int numPistas = 1;                // Numero de pistas (1, 2 o 3)
 
-vector<int> pistaActual; // pista asignada a cada avion
+vector<Avion> aviones;            // Datos de cada avion
+vector<vector<int>> tau;          // Matriz de separacion minima. tau[i][j]
 
-bool restriccion_tiempo(int T){
-    
-    return true; // Verificar que se cumplan las restricciones de tiempo entre aviones. (T_i < T_j); (T_j ≥ T_i + t_ij )
-}
+vector<int> T_aviones;            // Tiempo asignado a cada avion en solucion parcial
+vector<int> pistaActual;          // Pista asignada a cada avion en solucion parcial
 
-int costo_avion(int T, int E_k, int P_k, int L_k, int C_i, int C_k) { // Funcion a minimizar.
-    if (T < P_k) return (P_k - T) * C_i;
-    if (T > P_k) return (T - P_k) * C_k;
-    else return 0;
-}
-int backtracking() {
-    // En cada funcion integrar la funcion de costo_avion y la restriccion_tiempo para verificar que se cumplan las restricciones de tiempo entre aviones.
-    /*
-    T_aviones.push_back(T); // Tiempo asignado al primer avion. (T_1)
-    if(T_aviones.size() < 2 && T_aviones.size() > 0){
-        
+vector<int> mejorT;               // Mejor solucion encontrada (tiempos)
+vector<int> mejorPista;           // Mejor solucion encontrada (pistas)
+double mejorCosto;                // Costo de la mejor solucion
 
-    
+long long nodosExplorados = 0;    // Contador de nodos visitados
 
-        
-    } else if (T_aviones.size() > 1){
-        est = restriccion_tiempo(T);
-        if(est == false){
-            cout << "No se cumple la restriccion de tiempo entre aviones" << endl;
-            return 0;
+/* === Funciones === */
+
+// Verifica la restriccion de separacion entre aviones en la misma pista
+// Retorna true si asignar el avion 'avionIdx' al tiempo 'T' en 'pista' es valido
+bool restriccion_tiempo(int avionIdx, int T, int pista, const vector<int>& orden, int nivel) {
+    // Verificar ventana de tiempo [E, L]
+    if (T < aviones[avionIdx].E || T > aviones[avionIdx].L)
+        return false;
+
+    // Verificar separacion con todos los aviones ya asignados en la MISMA pista
+    for (int k = 0; k < nivel; k++) {
+        int otro = orden[k];
+        if (pistaActual[otro] != pista) continue; // distinta pista, no hay restriccion
+
+        int T_otro = T_aviones[otro];
+
+        if (T_otro <= T) {
+            // 'otro' aterriza antes -> T >= T_otro + tau[otro][avionIdx]
+            if (T < T_otro + tau[otro][avionIdx])
+                return false;
         } else {
-            for (int i = 0; i < T_aviones.size(); i++){
-                costo += costo_avion(T_aviones[i], aviones[i].E, aviones[i].P, aviones[i].L, aviones[i].C_i, aviones[i].C_k);
+            // avionIdx aterriza antes -> T_otro >= T + tau[avionIdx][otro]
+            if (T_otro < T + tau[avionIdx][otro])
+                return false;
+        }
+    }
+    return true;
+}
+
+// Calcula el costo de un avion dado su tiempo de aterrizaje
+double costo_avion(int idx, int T) {
+    if (T < aviones[idx].P)
+        return (aviones[idx].P - T) * aviones[idx].C_i;
+    else
+        return (T - aviones[idx].P) * aviones[idx].C_k;
+}
+
+// Ordena los aviones por tiempo preferente (P) ascendente
+// Los que deben aterrizar antes se asignan primero.
+vector<int> ordenar_por_preferente() {
+    vector<int> orden(D);
+    for (int i = 0; i < D; i++) orden[i] = i;
+    sort(orden.begin(), orden.end(), [](int a, int b) {
+        return aviones[a].P < aviones[b].P;
+    });
+    return orden;
+}
+
+// Genera tiempos a probar ordenados por cercania al preferente
+// Primero P, luego P-1, P+1, P-2, P+2, ...
+vector<int> generar_tiempos(int idx) {
+    vector<int> tiempos;
+    int P = aviones[idx].P;
+    int E = aviones[idx].E;
+    int L = aviones[idx].L;
+
+    tiempos.push_back(P);
+    int maxDelta = max(P - E, L - P);
+    for (int d = 1; d <= maxDelta; d++) {
+        if (P - d >= E) tiempos.push_back(P - d);
+        if (P + d <= L) tiempos.push_back(P + d);
+    }
+    return tiempos;
+}
+
+void backtracking(int nivel, const vector<int>& orden, double costoAcumulado) {
+    nodosExplorados++;
+    
+    // Caso base: todos los aviones fueron asignados
+    if (nivel == D) {
+        if (costoAcumulado < mejorCosto) {
+            mejorCosto = costoAcumulado;
+            mejorT = T_aviones;
+            mejorPista = pistaActual;
+        }
+        return;
+    }
+
+    int avionIdx = orden[nivel]; // Siguiente avion a asignar (segun heuristica)
+
+    // Generar tiempos candidatos (heuristica de valores)
+    vector<int> tiempos = generar_tiempos(avionIdx);
+
+    // Probar cada combinacion de pista y tiempo
+    for (int pista = 0; pista < numPistas; pista++) {
+        for (int t : tiempos) {
+
+            // Poda: si el costo parcial ya supera el mejor conocido, no seguir
+            double costoNuevo = costoAcumulado + costo_avion(avionIdx, t);
+            if (costoNuevo >= mejorCosto)
+                continue;
+
+            // Verificar restricciones de separacion
+            if (restriccion_tiempo(avionIdx, t, pista, orden, nivel)) {
+                // Asignar tiempo y pista
+                T_aviones[avionIdx] = t;
+                pistaActual[avionIdx] = pista;
+
+                // Llamada recursiva al siguiente nivel
+                backtracking(nivel + 1, orden, costoNuevo);
+
+                // Deshacer asignacion (backtrack)
+                T_aviones[avionIdx] = -1;
+                pistaActual[avionIdx] = -1;
             }
         }
     }
-    */
-    return 0; 
+
 }
+
 int forward_checking() {
     return 0;
 
@@ -61,19 +151,69 @@ int minimal_forward_checking() {
 
 }
 
+bool leer_archivo(const string& nombre) {
+    ifstream archivo(nombre);
+    if (!archivo.is_open()) {
+        cerr << "Error: no se pudo abrir " << nombre << endl;
+        return false;
+    }
+
+    archivo >> D;
+    aviones.resize(D);
+    tau.resize(D, vector<int>(D, 0));
+
+    for (int i = 0; i < D; i++) {
+        archivo >> aviones[i].E >> aviones[i].P >> aviones[i].L;
+        archivo >> aviones[i].C_i >> aviones[i].C_k;
+
+        // Leer fila de separacion del avion i con todos los demas
+        for (int j = 0; j < D; j++) {
+            archivo >> tau[i][j];
+        }
+    }
+
+    archivo.close();
+    return true;
+}
 
 
-int main() {
+int main(int argc, char* argv[]) {
     cout << "Control Aereo" << endl;
 
-    int D = 0; // Cantidad de aviones
-    int T = 0; // Tiempo asignado. Si el avion i aterriza en el tiempo T_i, El avion j deberá aterrizar en T_j. (T_i < T_j); (T_j ≥ T_i + t_ij )
+    string nombreArchivo = "case1.txt"; // Probar con case1.txt por el momento
+    numPistas = 1;
+
+    // Argumentos: ./programa <archivo> <num_pistas>
+    if (argc >= 2) nombreArchivo = argv[1];
+    if (argc >= 3) {
+        numPistas = atoi(argv[2]);
+        if (numPistas < 1 || numPistas > 3) {
+            cerr << "Error: pistas debe ser 1, 2 o 3" << endl;
+            return 1;
+        }
+    }
+
+    cout << "Archivo: " << nombreArchivo << endl;
+    cout << "Pistas:  " << numPistas << endl;
+
+    // Leer datos del archivo
+    if (!leer_archivo(nombreArchivo)) return 1;
+    cout << "Aviones: " << D << endl << endl;
+
+    // Inicializar estructuras
+    T_aviones.assign(D, -1);
+    pistaActual.assign(D, -1);
+    mejorT.assign(D, -1);
+    mejorPista.assign(D, -1);
+    mejorCosto = 1e18; // "infinito"
+    nodosExplorados = 0;
+
+    // Heuristica de variables: ordenar por tiempo preferente
+    vector<int> orden = ordenar_por_preferente();
 
     int costo_back, costo_forward, costo_minimal_forward = 0; // Costo total de cada algoritmo.
 
-    int numPistas = 1; // Numero de pistas (Default = 1)
-
-    costo_back = backtracking();
+    backtracking(0, orden, 0.0);
     costo_forward = forward_checking();
     costo_minimal_forward = minimal_forward_checking();
 

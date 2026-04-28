@@ -147,6 +147,154 @@ void backtracking(int nivel, const vector<int>& orden, double costoAcumulado) {
 }
 
 
+bool restriccion_tiempo_fc(int avionIdx, int T, int pista) {
+    if (T < aviones[avionIdx].E || T > aviones[avionIdx].L)
+        return false;
+
+    // Comparar contra TODOS los ya asignados
+    for (int otro = 0; otro < D; otro++) {
+        if (T_aviones[otro] == -1) continue;
+        if (pistaActual[otro] != pista) continue;
+
+        int T_otro = T_aviones[otro];
+
+        if (T_otro <= T) {
+            if (T < T_otro + tau[otro][avionIdx])
+                return false;
+        } else {
+            if (T_otro < T + tau[avionIdx][otro])
+                return false;
+        }
+    }
+
+    return true;
+}
+
+int seleccionarMRV() {
+        int minDomainSize = 1e9;
+        int selectedVar = -1;
+    
+        for (int i = 0; i < D; i++) {
+            if (T_aviones[i] != -1) continue; // Ya asignado
+    
+            int domainSize = dominios[i].size();
+            if (domainSize < minDomainSize) {
+                minDomainSize = domainSize;
+                selectedVar = i;
+            }
+        }
+        return selectedVar;
+}
+
+
+ bool verificar_dos_aviones(int a1, int t1, int p1, int a2, int t2, int p2) {
+    if (p1 != p2) return true; // Diferente pista, siempre OK
+    
+    if (t1 <= t2) {
+        return (t2 >= t1 + tau[a1][a2]);
+    } else {
+        return (t1 >= t2 + tau[a2][a1]);
+    }
+}
+
+void forward_checking(double costoAcumulado) {
+    nodosExplorados++;
+
+    // Caso base: todos asignados
+    bool completo = true;
+    for (int i = 0; i < D; i++) {
+        if (T_aviones[i] == -1) {
+            completo = false;
+            break;
+        }
+    }
+
+    if (completo) {
+        if (costoAcumulado < mejorCosto) {
+            mejorCosto = costoAcumulado;
+            mejorT = T_aviones;
+            mejorPista = pistaActual;
+        }
+        return;
+    }
+
+    // MRV
+    int avionIdx = seleccionarMRV();
+    if (avionIdx == -1) return;
+
+    vector<int> tiempos = dominios[avionIdx];
+
+        int P = aviones[avionIdx].P;
+
+    sort(tiempos.begin(), tiempos.end(),
+        [&](int a, int b) {
+            int da = abs(a - P);
+            int db = abs(b - P);
+
+            if (da != db) return da < db;
+            return a < b; // desempate 
+        });
+
+    // probar cada combinacion de pista y tiempo
+    for (int pista = 0; pista < numPistas; pista++) {
+
+        for (int t : tiempos) {
+
+            double costoNuevo = costoAcumulado + costo_avion(avionIdx, t);
+            if (costoNuevo >= mejorCosto) continue;
+
+            // verificar consistencia con los aviones asignados
+            if (!restriccion_tiempo_fc(avionIdx, t, pista)) continue;
+
+            auto dominios_backup = dominios;
+
+            T_aviones[avionIdx] = t;
+            pistaActual[avionIdx] = pista;
+
+            bool rama_viable = true;
+            // Solo filtramos los aviones j que NO están asignados
+            for (int j = 0; j < D; j++) {
+                if (T_aviones[j] != -1) continue; 
+
+                vector<int> nuevoDominio;
+                for (int t_j : dominios[j]) {
+                    bool es_posible_en_alguna_pista = false;
+                    
+                    for (int p_j = 0; p_j < numPistas; p_j++) {
+                        // SOLO verificamos contra el avión que acabamos de asignar (avionIdx)
+                        // Esto es lo que define al Forward Checking "puro"
+                        if (verificar_dos_aviones(avionIdx, t, pista, j, t_j, p_j)) {
+                            es_posible_en_alguna_pista = true;
+                            break;
+                        }
+                    }
+                    
+                    if (es_posible_en_alguna_pista) {
+                        nuevoDominio.push_back(t_j);
+                    }
+                }
+
+                dominios[j] = nuevoDominio;
+                if (dominios[j].empty()) {
+                    rama_viable = false;
+                    break;
+                }
+            }
+
+            // recursión
+            if (rama_viable) {
+                forward_checking(costoNuevo);
+            }
+            // backtrack
+            dominios = dominios_backup;
+            T_aviones[avionIdx] = -1;
+            pistaActual[avionIdx] = -1;
+        }
+    }
+}
+
+
+
 bool existe_al_menos_un_tiempo_valido(int idFuturo) {
     for (int p_f = 0; p_f < numPistas; p_f++) {
         for (int t_f = aviones[idFuturo].E; t_f <= aviones[idFuturo].L; t_f++) {
@@ -298,6 +446,24 @@ int main(int argc, char* argv[]) {
     costo_back = mejorCosto;
     long long nodos_back = nodosExplorados;
     cout << "Costo Backtracking: " << costo_back << " (Nodos: " << nodos_back << ")" << endl;
+
+    // --- FORWARD CHECKING ---
+    // Inicializar dominios
+    dominios.resize(D);
+
+    for (int i = 0; i < D; i++) {
+        dominios[i].clear();
+        for (int t = aviones[i].E; t <= aviones[i].L; t++) {
+            dominios[i].push_back(t);
+        }
+    }
+    
+    mejorCosto = 1e18; 
+    nodosExplorados = 0;
+    forward_checking(0.0);
+    costo_forward = mejorCosto;
+    long long nodos_fc = nodosExplorados;
+    cout << "Costo FC:           " << costo_forward << " (Nodos: " << nodos_fc << ")" << endl;
 
     // --- MINIMAL FORWARD CHECKING ---
     cout << "\nEjecutando Minimal Forward Checking..." << endl;

@@ -32,6 +32,8 @@ double mejorCosto;                // Costo de la mejor solucion
 
 long long nodosExplorados = 0;    // Contador de nodos visitados
 
+vector<vector<int>> dominios;
+
 /* === Funciones === */
 
 // Verifica la restriccion de separacion entre aviones en la misma pista
@@ -100,6 +102,8 @@ vector<int> generar_tiempos(int idx) {
 void backtracking(int nivel, const vector<int>& orden, double costoAcumulado) {
     nodosExplorados++;
     
+    string indent(nivel * 2, ' ');
+
     // Caso base: todos los aviones fueron asignados
     if (nivel == D) {
         if (costoAcumulado < mejorCosto) {
@@ -142,28 +146,33 @@ void backtracking(int nivel, const vector<int>& orden, double costoAcumulado) {
 
 }
 
-int forward_checking() {
-    return 0;
 
-}
-
-bool existe_al_menos_un_tiempo_valido(int idFuturo, int nivel_actual, const vector<int>& orden) {
-    // Revisa todas las pistas posibles
-    for (int p_futura = 0; p_futura < numPistas; p_futura++) {
-        // Y todos los tiempos posibles
-        for (int t_futuro = aviones[idFuturo].E; t_futuro <= aviones[idFuturo].L; t_futuro++) {
-            // Si encuentra UNA sola combinación que cumpla las restricciones, el avión futuro es viable
-            if (restriccion_tiempo(idFuturo, t_futuro, p_futura, orden, nivel_actual + 1)) {
-                return true; 
+bool existe_al_menos_un_tiempo_valido(int idFuturo) {
+    for (int p_f = 0; p_f < numPistas; p_f++) {
+        for (int t_f = aviones[idFuturo].E; t_f <= aviones[idFuturo].L; t_f++) {
+            bool es_posible = true;
+            // Comparacion contra TODOS los ya asignados
+            for (int otro = 0; otro < D; otro++) {
+                if (T_aviones[otro] == -1) continue;  // No asignado aún
+                if (pistaActual[otro] != p_f) continue;
+                
+                int t_a = T_aviones[otro];
+                int sep = (t_a <= t_f) ? tau[otro][idFuturo] : tau[idFuturo][otro];
+                
+                if (abs(t_f - t_a) < sep) {
+                    es_posible = false;
+                    break;
+                }
             }
+            if (es_posible) return true;
         }
     }
-    return false; // Si recorrió todo y no encontró nada, el futuro es inviable
+    return false;
 }
 
 void minimal_forward_checking(int nivel, const vector<int>& orden, double costoAcumulado) {
     nodosExplorados++;
-    
+
     // Caso base
     if (nivel == D) {
         if (costoAcumulado < mejorCosto) {
@@ -202,12 +211,9 @@ void minimal_forward_checking(int nivel, const vector<int>& orden, double costoA
             // Paso 2: Mirar hacia el futuro
             bool futuro_viable = true;
             for (int k = nivel + 1; k < D; k++) {
-                int idFuturo = orden[k];
-                bool existe_opcion = false;
-
-                // ¿Tiene alguna opción el avión k?
-                if (!existe_al_menos_un_tiempo_valido(idFuturo, nivel, orden)) {
-                    futuro_viable = false; // Si uno solo no tiene opciones, esta rama muere
+                // Si un solo avión futuro se queda sin opciones, se poda la rama
+                if (!existe_al_menos_un_tiempo_valido(orden[k])) {
+                    futuro_viable = false; 
                     break;
                 }
             }
@@ -293,9 +299,9 @@ int main(int argc, char* argv[]) {
     long long nodos_back = nodosExplorados;
     cout << "Costo Backtracking: " << costo_back << " (Nodos: " << nodos_back << ")" << endl;
 
-
     // --- MINIMAL FORWARD CHECKING ---
-    mejorCosto = 1e18; // Resetear récord para que MFC busque por su cuenta
+    cout << "\nEjecutando Minimal Forward Checking..." << endl;
+    mejorCosto = 1e18; 
     nodosExplorados = 0;
     minimal_forward_checking(0, orden, 0.0);
     costo_minimal_forward = mejorCosto;

@@ -34,6 +34,20 @@ long long nodosExplorados = 0;    // Contador de nodos visitados
 
 vector<vector<int>> dominios;
 
+// Funcion de TIMEOUT
+double tiempoLimiteSeg = 60.0;
+chrono::steady_clock::time_point inicioEjec;
+bool tiempoAgotado = false;
+
+// Revisa si se agoto el tiempo.
+inline bool verificar_tiempo() {
+    if (tiempoAgotado) return true;
+    if ((nodosExplorados & 0xFFF) != 0) return false;
+    double s = chrono::duration<double>(chrono::steady_clock::now() - inicioEjec).count();
+    if (s > tiempoLimiteSeg) { tiempoAgotado = true; return true; }
+    return false;
+}
+
 /* === Funciones === */
 
 // Verifica la restriccion de separacion entre aviones en la misma pista
@@ -100,6 +114,7 @@ vector<int> generar_tiempos(int idx) {
 }
 
 void backtracking(int nivel, const vector<int>& orden, double costoAcumulado) {
+    if (verificar_tiempo()) return;
     nodosExplorados++;
     
     string indent(nivel * 2, ' ');
@@ -198,6 +213,7 @@ int seleccionarMRV() {
 }
 
 void forward_checking(double costoAcumulado) {
+    if (verificar_tiempo()) return;
     nodosExplorados++;
 
     // Caso base: todos asignados
@@ -319,6 +335,7 @@ bool existe_al_menos_un_tiempo_valido(int idFuturo) {
 }
 
 void minimal_forward_checking(int nivel, const vector<int>& orden, double costoAcumulado) {
+    if (verificar_tiempo()) return;
     nodosExplorados++;
 
     // Caso base
@@ -442,10 +459,18 @@ int main(int argc, char* argv[]) {
     // ---  BACKTRACKING ---
     mejorCosto = 1e18; // Resetear récord
     nodosExplorados = 0;
+    tiempoAgotado = false;
+    inicioEjec = chrono::steady_clock::now();
+    auto t0 = chrono::steady_clock::now();
     backtracking(0, orden, 0.0);
+    auto t1 = chrono::steady_clock::now();
     costo_back = mejorCosto;
     long long nodos_back = nodosExplorados;
-    cout << "Costo Backtracking: " << costo_back << " (Nodos: " << nodos_back << ")" << endl;
+    double ms_back = chrono::duration<double, milli>(t1 - t0).count();
+    cout << "Costo Backtracking: " << costo_back
+         << " (Nodos: " << nodos_back
+         << ", Tiempo: " << ms_back << " ms"
+         << (tiempoAgotado ? ", TIMEOUT" : "") << ")" << endl;
 
     // --- FORWARD CHECKING ---
     // Inicializar dominios
@@ -460,22 +485,35 @@ int main(int argc, char* argv[]) {
     
     mejorCosto = 1e18; 
     nodosExplorados = 0;
+    tiempoAgotado = false;
+    inicioEjec = chrono::steady_clock::now();
+    t0 = chrono::steady_clock::now();
     forward_checking(0.0);
+    t1 = chrono::steady_clock::now();
     costo_forward = mejorCosto;
     long long nodos_fc = nodosExplorados;
-    cout << "Costo FC:           " << costo_forward << " (Nodos: " << nodos_fc << ")" << endl;
+    double ms_fc = chrono::duration<double, milli>(t1 - t0).count();
+    cout << "Costo FC:           " << costo_forward
+         << " (Nodos: " << nodos_fc
+         << ", Tiempo: " << ms_fc << " ms"
+         << (tiempoAgotado ? ", TIMEOUT" : "") << ")" << endl;
 
     // --- MINIMAL FORWARD CHECKING ---
     cout << "\nEjecutando Minimal Forward Checking..." << endl;
     mejorCosto = 1e18; 
     nodosExplorados = 0;
+    tiempoAgotado = false;
+    inicioEjec = chrono::steady_clock::now();
+    t0 = chrono::steady_clock::now();
     minimal_forward_checking(0, orden, 0.0);
+    t1 = chrono::steady_clock::now();
     costo_minimal_forward = mejorCosto;
     long long nodos_mfc = nodosExplorados;
-
-
-    
-    cout << "Costo MFC:          " << costo_minimal_forward << " (Nodos: " << nodos_mfc << ")" << endl;
+    double ms_mfc = chrono::duration<double, milli>(t1 - t0).count();    
+    cout << "Costo MFC:          " << costo_minimal_forward
+         << " (Nodos: " << nodos_mfc 
+         << ", Tiempo: " << ms_mfc << " ms"
+         << (tiempoAgotado ? ", TIMEOUT" : "") << ")" << endl;
     
     return 0;
 }

@@ -5,8 +5,10 @@
 #include <chrono>
 #include <string>
 #include <cmath>
+#include <filesystem>
 
 using namespace std;
+namespace fs = std::filesystem;
 
 /*
 Contexto del ejercicio en T1_AEM_2026.pdf
@@ -86,6 +88,40 @@ void imprimir_resumen_ejecucion(const string& nombreAlgoritmo, double costo, lon
         imprimir_solucion_actual("Mejor solucion encontrada antes del timeout");
     } else {
         imprimir_solucion_actual("Solucion final sin timeout:");
+    }
+}
+
+void guardar_resultados_csv(const string& nombreArchivoTest, int pistas, const string& algoritmo,
+                            const vector<int>& tiempos, const vector<int>& pistasAsignadas,
+                            double costo, long long nodos, double ms) {
+    // crear carpeta results/<testname>/<pistas>pistas
+    fs::path p(nombreArchivoTest);
+    string testbase = p.stem().string();
+    fs::path dir = fs::path("results") / testbase / (to_string(pistas) + string("pistas"));
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+
+    // Archivo de asignaciones
+    fs::path assignFile = dir / (algoritmo + string("_assignments.csv"));
+    ofstream fa(assignFile);
+    if (fa.is_open()) {
+        fa << "avion,T,pista\n";
+        for (size_t i = 0; i < tiempos.size(); i++) {
+            int t = tiempos[i];
+            int p_actual = pistasAsignadas[i];
+            if (t == -1) fa << i << ",," << (p_actual == -1 ? "" : to_string(p_actual)) << "\n";
+            else fa << i << "," << t << "," << (p_actual == -1 ? "" : to_string(p_actual)) << "\n";
+        }
+        fa.close();
+    }
+
+    // Archivo resumen
+    fs::path summaryFile = dir / (algoritmo + string("_summary.csv"));
+    ofstream fsu(summaryFile);
+    if (fsu.is_open()) {
+        fsu << "costo,nodos,tiempo_ms,timeout\n";
+        fsu << costo << "," << nodos << "," << ms << "," << (tiempoAgotado ? "1" : "0") << "\n";
+        fsu.close();
     }
 }
 
@@ -508,7 +544,11 @@ int main(int argc, char* argv[]) {
     costo_back = mejorCosto;
     long long nodos_back = nodosExplorados;
     double ms_back = chrono::duration<double, milli>(t1 - t0).count();
+    // Guardar copia de la mejor solucion encontrada por backtracking
+    vector<int> bestT_back = mejorT;
+    vector<int> bestP_back = mejorPista;
     imprimir_resumen_ejecucion("Costo Backtracking", costo_back, nodos_back, ms_back);
+    guardar_resultados_csv(nombreArchivo, numPistas, string("Backtracking"), bestT_back, bestP_back, costo_back, nodos_back, ms_back);
 
     // --- FORWARD CHECKING ---
     // Inicializar dominios
@@ -531,7 +571,10 @@ int main(int argc, char* argv[]) {
     costo_forward = mejorCosto;
     long long nodos_fc = nodosExplorados;
     double ms_fc = chrono::duration<double, milli>(t1 - t0).count();
+    vector<int> bestT_fc = mejorT;
+    vector<int> bestP_fc = mejorPista;
     imprimir_resumen_ejecucion("Costo FC", costo_forward, nodos_fc, ms_fc);
+    guardar_resultados_csv(nombreArchivo, numPistas, string("ForwardChecking"), bestT_fc, bestP_fc, costo_forward, nodos_fc, ms_fc);
 
     // --- MINIMAL FORWARD CHECKING ---
     mejorCosto = 1e18; 
@@ -544,7 +587,10 @@ int main(int argc, char* argv[]) {
     costo_minimal_forward = mejorCosto;
     long long nodos_mfc = nodosExplorados;
     double ms_mfc = chrono::duration<double, milli>(t1 - t0).count();    
+    vector<int> bestT_mfc = mejorT;
+    vector<int> bestP_mfc = mejorPista;
     imprimir_resumen_ejecucion("Costo MFC", costo_minimal_forward, nodos_mfc, ms_mfc);
+    guardar_resultados_csv(nombreArchivo, numPistas, string("MinimalForwardChecking"), bestT_mfc, bestP_mfc, costo_minimal_forward, nodos_mfc, ms_mfc);
     
     return 0;
 }
